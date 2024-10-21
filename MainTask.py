@@ -25,7 +25,7 @@ def internet_connection():
         print("The Internet is connected.")
         return True
     except requests.ConnectionError:
-        print("The Internet Down.")
+        print("The Internet Down. Switching to LLM Mode")
         return False    
 # if internet_connection():
 #     flag = True
