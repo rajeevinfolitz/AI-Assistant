@@ -5,19 +5,24 @@ import sounddevice as sd
 import json
 import requests
 import time
-import pyttsx3
+import threading
+from dimits import Dimits                                                                           # New import for Dimits
 from concurrent.futures import ThreadPoolExecutor
 from vosk import Model, KaldiRecognizer
-import threading
 
 # Global variables and events
 q = queue.Queue()
 stop_flag = threading.Event()
 tts_active = threading.Event()
-engine = pyttsx3.init()
 
 # Wake word for activation
 WAKE_WORD = "hi"
+
+def callback(indata, frames, time, status):
+    if status:
+        print(status, file=sys.stderr)
+    q.put(bytes(indata))
+
 
 def internet_connection():
     try:
@@ -25,18 +30,8 @@ def internet_connection():
         print("The Internet is connected.")
         return True
     except requests.ConnectionError:
-        print("The Internet Down. Switching to LLM Mode")
-        return False    
-# if internet_connection():
-#     flag = True
-#     print("The Internet is connected.")
-# else:
-#     print("The Internet is not connected.")
-
-def callback(indata, frames, time, status):
-    if status:
-        print(status, file=sys.stderr)
-    q.put(bytes(indata))
+        print("The Internet Down.")
+        return False   
 
 def vosk_listen(args):
     device_info = sd.query_devices(args.device, "input")
@@ -60,46 +55,26 @@ def vosk_listen(args):
 def handle_recognized_text(text):
     if "stop" in text.lower():
         stop_flag.set()
-        engine.stop()
-        print("Stopping TTS and resetting...")
+        # print("Stopping TTS and resetting...")
     elif WAKE_WORD in text.lower():
-        print("Wake word detected, listening for command...")
+        print("**********************************************************************************")
+        print("****************************PROGRAM START*****************************************")
+        print("**********************************************************************************")
         command = listen_for_command()
         if command:
             respond_to_text(command)
 
 def listen_for_command():
-    # Continue listening for a command after wake word
     while not stop_flag.is_set():
         text = vosk_listen(args)
         if text:
-            if "stop" in text.lower():
+            if "stop and exit" in text.lower():
                 stop_flag.set()
                 print("Exiting...")
                 break
-            elif not tts_active.is_set():
-                return text
             else:
-                print("TTS active, waiting...")
-
-def respond_to_text(text):
-    with ThreadPoolExecutor() as executor:
-        ollama_future = executor.submit(get_ollama_response, text)
-        openai_future = executor.submit(get_openai_response, text)
-
-        ollama_response = ollama_future.result()
-        openai_response = openai_future.result()
-
-        print("\nOllama LLM Response:")
-        print(ollama_response)
-
-        print("\nOpenAI Response:")
-        print(openai_response)
-
-        # Speak both responses
-        speak(ollama_response)
-        speak(openai_response)
-
+                return text
+            
 def get_ollama_response(prompt):
     if internet_connection():
         ollama_url = "http://localhost:11434/api/generate"
@@ -134,7 +109,7 @@ def process_ollama_response(response):
 
 def get_openai_response(prompt):
     openai_url = "https://api.openai.com/v1/chat/completions"
-    api_key = "KEY"  # Hardcoded OpenAI API key
+    api_key = ""  # Hardcoded OpenAI API key
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
@@ -170,16 +145,32 @@ def measure_total_time(func, *args, **kwargs):
     total_time = end_time - start_time
     return result, total_time
 
+
+def respond_to_text(text):
+    with ThreadPoolExecutor() as executor:
+        ollama_future = executor.submit(get_ollama_response, text)
+        openai_future = executor.submit(get_openai_response, text)
+
+        ollama_response = ollama_future.result()
+        openai_response = openai_future.result()
+
+        print("\nOllama LLM Response:")
+        print(ollama_response)
+
+        print("\nOpenAI Response:")
+        print(openai_response)
+
+        # Speak both responses using Dimits
+        speak(ollama_response)
+        speak(openai_response)
+
 def speak(text):
     tts_active.set()  # TTS is active
-    
-    engine.setProperty('rate', 150)
-    engine.setProperty('volume', 0.9)
-    engine.setProperty('voice', 'english+f3')
-    
-    engine.say(text)
-    engine.runAndWait()
-    
+
+    # Use Dimits for TTS
+    dt = Dimits("en_US-amy-low")  # Adjust the voice model as needed
+    dt.text_2_speech(text, engine="aplay", sample_rate=16000)
+
     tts_active.clear()  # TTS is done
 
 def continuous_chat_with_vosk(args):
